@@ -210,7 +210,6 @@ const selectKing = (row, col) => {
     if (error) {
       moveError.value = error;
       addInvalidMoveEffect(row, col);
-      // Clear error after 2 seconds
       setTimeout(() => moveError.value = '', 2000);
     } else {
       board.value[selectedKing.value.row][selectedKing.value.col] = false;
@@ -219,6 +218,10 @@ const selectKing = (row, col) => {
       saveMove();
       selectedKing.value = { row: null, col: null };
     }
+  } else if (kingCount.value >= 9) {
+    moveError.value = "Maximum number of kings (9) reached";
+    addInvalidMoveEffect(row, col);
+    setTimeout(() => moveError.value = '', 2000);
   }
 };
 
