@@ -68,10 +68,3 @@ chess-app/
 │   └── main.js
 ├── public/
 └── package.json
-```
-
-## Acknowledgments
-
-- Chess piece SVG designs
-- Vue.js team for the fantastic framework
-- Chess puzzle community for inspiration
