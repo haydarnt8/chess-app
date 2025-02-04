@@ -1,61 +1,36 @@
-<template>
-  <div class="chess-container">
-    <div class="controls">
-      <button @click="generateNewSolution" class="control-btn">Generate New Solution</button>
-    </div>
-    <div class="chessboard">
-      <div v-for="row in 9" :key="`row-${row}`" class="row">
-        <div 
-          v-for="col in 9" 
-          :key="`${row}-${col}`"
-          :class="[
-            'cell',
-            (row + col) % 2 === 0 ? 'white' : 'black',
-            { 'king': hasKing(row-1, col-1) },
-            { 'dragging': isDragging && dragPosition.row === row-1 && dragPosition.col === col-1 },
-            { 'selected': !isDragging && selectedKing.row === row-1 && selectedKing.col === col-1 },
-            { 'possible-move': !isDragging && selectedKing.row !== null && isPossibleMove(row-1, col-1) }
-          ]"
-          @click="selectKing(row-1, col-1)"
-          @mousedown="startDrag(row-1, col-1, $event)"
-          @mouseup="endDrag(row-1, col-1)"
-          @mousemove="handleDrag($event)"
-          @touchmove="handleDrag($event)"
-        >
-          <span v-if="hasKing(row-1, col-1)" class="king-symbol">
-            <svg viewBox="0 0 45 45" class="king-svg">
-              <g fill="none" fill-rule="evenodd" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M22.5 11.63V6M20 8h5" stroke-linejoin="miter"/>
-                <path d="M22.5 25s4.5-7.5 3-10.5c0 0-1-2.5-3-2.5s-3 2.5-3 2.5c-1.5 3 3 10.5 3 10.5" fill="#fff" stroke-linecap="butt" stroke-linejoin="miter"/>
-                <path d="M11.5 37c5.5 3.5 15.5 3.5 21 0v-7s9-4.5 6-10.5c-4-6.5-13.5-3.5-16 4V27v-3.5c-3.5-7.5-13-10.5-16-4-3 6 5 10 5 10V37z" fill="#fff"/>
-                <path d="M11.5 30c5.5-3 15.5-3 21 0M11.5 33.5c5.5-3 15.5-3 21 0M11.5 37c5.5-3 15.5-3 21 0"/>
-              </g>
-            </svg>
-          </span>
-        </div>
-      </div>
-    </div>
-    <div v-if="moveError" class="move-error">
-      {{ moveError }}
-    </div>
-  </div>
-</template>
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
 
 // Board state
 const board = ref(Array(9).fill(null).map(() => Array(9).fill(false)));
+const isDragging = ref(false);
+const dragPosition = ref({ row: null, col: null });
+const selectedKing = ref({ row: null, col: null });
+const moveError = ref('');
+const possibleMovesCache = ref(new Map());
 const kingCount = computed(() => board.value.flat().filter(cell => cell).length);
 const hasConflict = computed(() => checkConflicts());
 
-// Helper function to get random integer between min and max (inclusive)
+// Computed property for possible moves
+const possibleMoves = computed(() => {
+  if (!selectedKing.value.row) return [];
+  const key = `${selectedKing.value.row},${selectedKing.value.col}`;
+  
+  if (!possibleMovesCache.value.has(key)) {
+    const moves = calculatePossibleMoves(selectedKing.value.row, selectedKing.value.col);
+    possibleMovesCache.value.set(key, moves);
+  }
+  
+  return possibleMovesCache.value.get(key);
+});
+
 const getRandomInt = (min, max) => {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 };
 
 // Check if position has a king
-const hasKing = (row, col) => board.value[row][col];
+const hasKing = (row, col) => board.value[row][col]; 
 
 // Check if a position is under attack
 const isUnderAttack = (row, col, tempBoard = board.value) => {
@@ -90,13 +65,6 @@ const checkConflicts = () => {
     }
   }
   return false;
-};
-
-// Toggle king placement
-const toggleKing = (row, col) => {
-  if (board.value[row][col] || kingCount.value < 9) {
-    board.value[row][col] = !board.value[row][col];
-  }
 };
 
 // Generate a valid solution with random placement
@@ -150,14 +118,6 @@ const generateNewSolution = () => {
   }
 };
 
-// Generate initial solution on mount
-onMounted(() => {
-  generateNewSolution();
-});
-
-const isDragging = ref(false);
-const dragPosition = ref({ row: null, col: null });
-
 const startDrag = (row, col, event) => {
   if (hasKing(row, col)) {
     isDragging.value = true;
@@ -182,9 +142,6 @@ const isPossibleMove = (row, col) => {
   return !isUnderAttack(row, col, board.value.map((r, i) => r.map((c, j) => (i === selectedKing.value.row && j === selectedKing.value.col) ? false : c)));
 };
 
-const selectedKing = ref({ row: null, col: null });
-
-const moveError = ref('');
 
 // Helper to validate move with specific error messages
 const validateMove = (startRow, startCol, endRow, endCol) => {
@@ -222,54 +179,6 @@ const selectKing = (row, col) => {
   }
 };
 
-// Cache for possible moves
-const possibleMovesCache = ref(new Map());
-
-// Board state with move history
-const moveHistory = ref([]);
-const currentMoveIndex = ref(-1);
-
-// Computed property for possible moves
-const possibleMoves = computed(() => {
-  if (!selectedKing.value.row) return [];
-  const key = `${selectedKing.value.row},${selectedKing.value.col}`;
-  
-  if (!possibleMovesCache.value.has(key)) {
-    const moves = calculatePossibleMoves(selectedKing.value.row, selectedKing.value.col);
-    possibleMovesCache.value.set(key, moves);
-  }
-  
-  return possibleMovesCache.value.get(key);
-});
-
-// Clear cache when board changes
-watch(board, () => {
-  possibleMovesCache.value.clear();
-});
-
-// Undo/Redo functions
-const undo = () => {
-  if (currentMoveIndex.value > 0) {
-    currentMoveIndex.value--;
-    board.value = JSON.parse(JSON.stringify(moveHistory.value[currentMoveIndex.value]));
-  }
-};
-
-const redo = () => {
-  if (currentMoveIndex.value < moveHistory.value.length - 1) {
-    currentMoveIndex.value++;
-    board.value = JSON.parse(JSON.stringify(moveHistory.value[currentMoveIndex.value]));
-  }
-};
-
-// Save move to history
-const saveMove = () => {
-  // Remove any future moves if we're in the middle of history
-  moveHistory.value = moveHistory.value.slice(0, currentMoveIndex.value + 1);
-  moveHistory.value.push(JSON.parse(JSON.stringify(board.value)));
-  currentMoveIndex.value = moveHistory.value.length - 1;
-};
-
 // Modified endDrag with move validation and history
 const endDrag = (row, col) => {
   if (!isDragging.value) return;
@@ -278,7 +187,6 @@ const endDrag = (row, col) => {
   if (!error) {
     board.value[dragPosition.value.row][dragPosition.value.col] = false;
     board.value[row][col] = true;
-    saveMove();
     addMoveEffect(row, col);
   } else {
     moveError.value = error;
@@ -329,7 +237,64 @@ const handleDrag = (event) => {
     }
   }
 };
+
+// Clear cache when board changes
+watch(board, () => {
+  possibleMovesCache.value.clear();
+});
+
+// Generate initial solution on mount
+onMounted(() => {
+  generateNewSolution();
+});
+
 </script>
+
+
+<template>
+    <div class="chess-container">
+      <div class="controls">
+        <button @click="generateNewSolution" class="control-btn">Generate New Solution</button>
+      </div>
+      <div class="chessboard">
+        <div v-for="row in 9" :key="`row-${row}`" class="row">
+          <div 
+            v-for="col in 9" 
+            :key="`${row}-${col}`"
+            :class="[
+              'cell',
+              (row + col) % 2 === 0 ? 'white' : 'black',
+              { 'king': hasKing(row-1, col-1) },
+              { 'dragging': isDragging && dragPosition.row === row-1 && dragPosition.col === col-1 },
+              { 'selected': !isDragging && selectedKing.row === row-1 && selectedKing.col === col-1 },
+              { 'possible-move': !isDragging && selectedKing.row !== null && isPossibleMove(row-1, col-1) }
+            ]"
+            @click="selectKing(row-1, col-1)"
+            @mousedown="startDrag(row-1, col-1, $event)"
+            @mouseup="endDrag(row-1, col-1)"
+            @mousemove="handleDrag($event)"
+            @touchmove="handleDrag($event)"
+          >
+            <span v-if="hasKing(row-1, col-1)" class="king-symbol">
+              <svg viewBox="0 0 45 45" class="king-svg">
+                <g fill="none" fill-rule="evenodd" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M22.5 11.63V6M20 8h5" stroke-linejoin="miter"/>
+                  <path d="M22.5 25s4.5-7.5 3-10.5c0 0-1-2.5-3-2.5s-3 2.5-3 2.5c-1.5 3 3 10.5 3 10.5" fill="#fff" stroke-linecap="butt" stroke-linejoin="miter"/>
+                  <path d="M11.5 37c5.5 3.5 15.5 3.5 21 0v-7s9-4.5 6-10.5c-4-6.5-13.5-3.5-16 4V27v-3.5c-3.5-7.5-13-10.5-16-4-3 6 5 10 5 10V37z" fill="#fff"/>
+                  <path d="M11.5 30c5.5-3 15.5-3 21 0M11.5 33.5c5.5-3 15.5-3 21 0M11.5 37c5.5-3 15.5-3 21 0"/>
+                </g>
+              </svg>
+            </span>
+          </div>
+        </div>
+      </div>
+      <div v-if="moveError" class="move-error">
+        {{ moveError }}
+      </div>
+    </div>
+  </template>
+  
+
 <style scoped>
 .chess-container {
     display: flex;
