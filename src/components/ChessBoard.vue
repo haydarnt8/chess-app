@@ -1,36 +1,18 @@
-
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch, onUnmounted } from 'vue';
 
 // Board state
 const board = ref(Array(9).fill(null).map(() => Array(9).fill(false)));
-const isDragging = ref(false);
-const dragPosition = ref({ row: null, col: null });
-const selectedKing = ref({ row: null, col: null });
-const moveError = ref('');
-const possibleMovesCache = ref(new Map());
 const kingCount = computed(() => board.value.flat().filter(cell => cell).length);
 const hasConflict = computed(() => checkConflicts());
 
-// Computed property for possible moves
-const possibleMoves = computed(() => {
-  if (!selectedKing.value.row) return [];
-  const key = `${selectedKing.value.row},${selectedKing.value.col}`;
-  
-  if (!possibleMovesCache.value.has(key)) {
-    const moves = calculatePossibleMoves(selectedKing.value.row, selectedKing.value.col);
-    possibleMovesCache.value.set(key, moves);
-  }
-  
-  return possibleMovesCache.value.get(key);
-});
-
+// Helper function to get random integer between min and max (inclusive)
 const getRandomInt = (min, max) => {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 };
 
 // Check if position has a king
-const hasKing = (row, col) => board.value[row][col]; 
+const hasKing = (row, col) => board.value[row][col];
 
 // Check if a position is under attack
 const isUnderAttack = (row, col, tempBoard = board.value) => {
@@ -65,6 +47,13 @@ const checkConflicts = () => {
     }
   }
   return false;
+};
+
+// Toggle king placement
+const toggleKing = (row, col) => {
+  if (board.value[row][col] || kingCount.value < 9) {
+    board.value[row][col] = !board.value[row][col];
+  }
 };
 
 // Generate a valid solution with random placement
@@ -118,12 +107,29 @@ const generateNewSolution = () => {
   }
 };
 
+// Generate initial solution on mount
+onMounted(() => {
+  generateNewSolution();
+});
+
+const isDragging = ref(false);
+const dragPosition = ref({ row: null, col: null });
+
 const startDrag = (row, col, event) => {
   if (hasKing(row, col)) {
     isDragging.value = true;
     dragPosition.value = { row, col };
-    // Clear selected king when starting to drag
     selectedKing.value = { row: null, col: null };
+    
+    // Create drag ghost
+    if (event.dataTransfer) {
+      const ghost = event.target.cloneNode(true);
+      ghost.style.opacity = '0.5';
+      document.body.appendChild(ghost);
+      event.dataTransfer.setDragImage(ghost, 35, 35);
+      setTimeout(() => document.body.removeChild(ghost), 0);
+    }
+    
     event.preventDefault();
   }
 };
@@ -142,6 +148,17 @@ const isPossibleMove = (row, col) => {
   return !isUnderAttack(row, col, board.value.map((r, i) => r.map((c, j) => (i === selectedKing.value.row && j === selectedKing.value.col) ? false : c)));
 };
 
+const selectedKing = ref({ row: null, col: null });
+
+const moveError = ref('');
+
+// Add debounced error handling
+let errorTimeout;
+const showError = (message) => {
+  moveError.value = message;
+  clearTimeout(errorTimeout);
+  errorTimeout = setTimeout(() => moveError.value = '', 2000);
+};
 
 // Helper to validate move with specific error messages
 const validateMove = (startRow, startCol, endRow, endCol) => {
@@ -179,6 +196,54 @@ const selectKing = (row, col) => {
   }
 };
 
+// Cache for possible moves
+const possibleMovesCache = ref(new Map());
+
+// Board state with move history
+const moveHistory = ref([]);
+const currentMoveIndex = ref(-1);
+
+// Computed property for possible moves
+const possibleMoves = computed(() => {
+  if (!selectedKing.value.row) return [];
+  const key = `${selectedKing.value.row},${selectedKing.value.col}`;
+  
+  if (!possibleMovesCache.value.has(key)) {
+    const moves = calculatePossibleMoves(selectedKing.value.row, selectedKing.value.col);
+    possibleMovesCache.value.set(key, moves);
+  }
+  
+  return possibleMovesCache.value.get(key);
+});
+
+// Clear cache when board changes
+watch(board, () => {
+  possibleMovesCache.value.clear();
+});
+
+// Undo/Redo functions
+const undo = () => {
+  if (currentMoveIndex.value > 0) {
+    currentMoveIndex.value--;
+    board.value = JSON.parse(JSON.stringify(moveHistory.value[currentMoveIndex.value]));
+  }
+};
+
+const redo = () => {
+  if (currentMoveIndex.value < moveHistory.value.length - 1) {
+    currentMoveIndex.value++;
+    board.value = JSON.parse(JSON.stringify(moveHistory.value[currentMoveIndex.value]));
+  }
+};
+
+// Save move to history
+const saveMove = () => {
+  // Remove any future moves if we're in the middle of history
+  moveHistory.value = moveHistory.value.slice(0, currentMoveIndex.value + 1);
+  moveHistory.value.push(JSON.parse(JSON.stringify(board.value)));
+  currentMoveIndex.value = moveHistory.value.length - 1;
+};
+
 // Modified endDrag with move validation and history
 const endDrag = (row, col) => {
   if (!isDragging.value) return;
@@ -187,6 +252,7 @@ const endDrag = (row, col) => {
   if (!error) {
     board.value[dragPosition.value.row][dragPosition.value.col] = false;
     board.value[row][col] = true;
+    saveMove();
     addMoveEffect(row, col);
   } else {
     moveError.value = error;
@@ -238,19 +304,14 @@ const handleDrag = (event) => {
   }
 };
 
-// Clear cache when board changes
-watch(board, () => {
-  possibleMovesCache.value.clear();
+// Add cleanup on component unmount
+onUnmounted(() => {
+  clearTimeout(errorTimeout);
+  document.querySelectorAll('.drag-over, .drag-invalid').forEach(el => {
+    el.classList.remove('drag-over', 'drag-invalid');
+  });
 });
-
-// Generate initial solution on mount
-onMounted(() => {
-  generateNewSolution();
-});
-
 </script>
-
-
 <template>
     <div class="chess-container">
       <div class="controls">
@@ -294,7 +355,6 @@ onMounted(() => {
     </div>
   </template>
   
-
 <style scoped>
 .chess-container {
     display: flex;
@@ -447,8 +507,22 @@ onMounted(() => {
 
 /* Drag effect styles */
 .cell.dragging {
-    opacity: 0.5;
-    background-color: #e0e0e0;
+  opacity: 0.6;
+  transform: scale(1.1);
+  z-index: 100;
+  cursor: grabbing;
+  transition: transform 0.2s ease;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+}
+
+.cell.drag-over {
+  background: linear-gradient(135deg, #4CAF50, #45a049);
+  animation: dragPulse 1s infinite;
+}
+
+.cell.drag-invalid {
+  background: linear-gradient(135deg, #f44336, #d32f2f);
+  animation: shake 0.5s ease-in-out;
 }
 
 .cell.selected {
