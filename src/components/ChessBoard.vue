@@ -641,7 +641,6 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-  border-left: 4px solid #e74c3c;
 }
 
 .move-error::before {
